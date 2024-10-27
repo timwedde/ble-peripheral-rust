@@ -1,0 +1,20 @@
+{
+    "cSpell.words": [
+        "CBATT",
+        "corebluetooth",
+        "descriptoruuid",
+        "didaddservice",
+        "didreceivereadrequest",
+        "didreceivewriterequests",
+        "didsubscribetocharacteristic",
+        "didunsubscribefromcharacteristic",
+        "HRESULT",
+        "Inspectable",
+        "ivars",
+        "objc",
+        "oneshot",
+        "peripheralmanager",
+        "peripheralmanagerdidstartadvertising",
+        "peripheralmanagerdidupdatestate"
+    ]
+}

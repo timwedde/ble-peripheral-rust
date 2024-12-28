@@ -1,5 +1,5 @@
 use std::io::{self, BufRead};
-use tokio::sync::mpsc;
+use tokio::{runtime::Builder, sync::mpsc, task::LocalSet};
 use uuid::Uuid;
 
 use ble_peripheral_rust::{
@@ -16,8 +16,18 @@ use ble_peripheral_rust::{
     Peripheral,
 };
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build runtime");
+
+    LocalSet::new().block_on(&runtime, async {
+        start_app().await;
+    });
+}
+
+async fn start_app() {
     std::env::set_var("RUST_LOG", "info");
     if let Err(err) = pretty_env_logger::try_init() {
         eprintln!("WARNING: failed to initialize logging framework: {}", err);
@@ -44,6 +54,7 @@ async fn main() {
                 value: None,
                 descriptors: vec![Descriptor {
                     uuid: Uuid::from_short(0x2A13_u16),
+                    value: Some(vec![0, 1]),
                     ..Default::default()
                 }],
             },

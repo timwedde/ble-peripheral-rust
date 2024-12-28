@@ -13,7 +13,7 @@ use ble_peripheral_rust::{
         service::Service,
     },
     uuid::ShortUuid,
-    Peripheral,
+    Peripheral, PeripheralImpl,
 };
 
 #[tokio::main]
@@ -22,7 +22,10 @@ async fn main() {
     if let Err(err) = pretty_env_logger::try_init() {
         eprintln!("WARNING: failed to initialize logging framework: {}", err);
     }
+    start_app().await;
+}
 
+async fn start_app() {
     let char_uuid = Uuid::from_short(0x2A3D_u16);
 
     // Define Service With Characteristics
@@ -44,6 +47,7 @@ async fn main() {
                 value: None,
                 descriptors: vec![Descriptor {
                     uuid: Uuid::from_short(0x2A13_u16),
+                    value: Some(vec![0, 1]),
                     ..Default::default()
                 }],
             },

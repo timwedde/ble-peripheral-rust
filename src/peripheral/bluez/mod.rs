@@ -1,17 +1,21 @@
 mod bluez_utils;
 mod characteristic_utils;
 
-use crate::gatt::{
-    peripheral_event::{PeripheralEvent, PeripheralRequest},
-    service,
+use crate::{
+    error::{Error, ErrorType},
+    gatt::{
+        peripheral_event::{PeripheralEvent, PeripheralRequest},
+        service,
+    },
 };
+use async_trait::async_trait;
 use bluer::{
     adv::{Advertisement, AdvertisementHandle},
     gatt::{
         local::{Application, ApplicationHandle, CharacteristicControlEvent},
         CharacteristicWriter,
     },
-    Adapter, AdapterEvent, AdapterProperty, Error,
+    Adapter, AdapterEvent, AdapterProperty,
 };
 use bluez_utils::CharNotifyHandler;
 use characteristic_utils::parse_services;
@@ -22,6 +26,8 @@ use std::{
 };
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
+
+use super::PeripheralImpl;
 
 #[derive(Debug)]
 pub struct Peripheral {
@@ -34,8 +40,11 @@ pub struct Peripheral {
     _drop_tx: oneshot::Sender<()>,
 }
 
-impl Peripheral {
-    pub async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
+#[async_trait]
+impl PeripheralImpl for Peripheral {
+    type Peripheral = Self;
+
+    async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
         let session = bluer::Session::new().await?;
         let adapter = session.default_adapter().await?;
         adapter.set_powered(true).await?;
@@ -89,17 +98,17 @@ impl Peripheral {
         })
     }
 
-    pub async fn is_powered(&self) -> Result<bool, Error> {
+    async fn is_powered(&mut self) -> Result<bool, Error> {
         let result = self.adapter.is_powered().await?;
         return Ok(result);
     }
 
-    pub async fn is_advertising(&self) -> Result<bool, Error> {
+    async fn is_advertising(&mut self) -> Result<bool, Error> {
         let result = self.adapter.active_advertising_instances().await?;
         return Ok(result > 0 && self.adv_handle.is_some());
     }
 
-    pub async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
+    async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
         let manufacturer_data = BTreeMap::new();
 
         let mut services: BTreeSet<Uuid> = BTreeSet::new();
@@ -133,28 +142,40 @@ impl Peripheral {
         Ok(())
     }
 
-    pub async fn stop_advertising(&mut self) -> Result<(), Error> {
+    async fn stop_advertising(&mut self) -> Result<(), Error> {
         self.adv_handle = None;
         self.app_handle = None;
         Ok(())
     }
 
-    pub async fn add_service(&mut self, service: &service::Service) -> Result<(), Error> {
+    async fn add_service(&mut self, service: &service::Service) -> Result<(), Error> {
         self.services.push(service.clone());
         Ok(())
     }
 
-    pub async fn update_characteristic(
+    async fn update_characteristic(
         &mut self,
         characteristic: Uuid,
         value: Vec<u8>,
     ) -> Result<(), Error> {
-        if let Some(writer) = self.writers.lock().unwrap().get(&characteristic) {
-            writer.send(&value).await?;
-        }
+        let writers = match self.writers.lock() {
+            Ok(w) => w,
+            Err(err) => return Err(Error::from_string(err.to_string(), ErrorType::Bluez)),
+        };
+        let writer = writers.get(&characteristic).cloned();
+        drop(writers);
+        tokio::spawn(async move {
+            if let Some(writer) = writer {
+                if let Err(err) = writer.send(&value).await {
+                    log::error!("Error sending value {err:?}")
+                }
+            }
+        });
         Ok(())
     }
+}
 
+impl Peripheral {
     // Handle Characteristic Subscriptions
     fn setup_char_handlers(&mut self, handlers: Vec<CharNotifyHandler>) {
         for mut handler in handlers {

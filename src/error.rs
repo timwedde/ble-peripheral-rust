@@ -6,6 +6,7 @@ pub enum ErrorType {
     CoreBluetooth,
     Windows,
     PermissionDenied,
+    ChannelError,
 }
 
 impl From<ErrorType> for &'static str {
@@ -15,6 +16,7 @@ impl From<ErrorType> for &'static str {
             ErrorType::CoreBluetooth => "CoreBluetooth",
             ErrorType::Windows => "Windows",
             ErrorType::PermissionDenied => "PermissionDenied",
+            ErrorType::ChannelError => "ChannelError",
         }
     }
 }

@@ -12,15 +12,19 @@ use objc2_core_bluetooth::{
     CBPeripheralManagerDelegate, CBService,
 };
 use objc2_foundation::{NSArray, NSData, NSError, NSObject, NSObjectProtocol};
-use std::{cell::RefCell, collections::HashMap, fmt::Debug};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::{mpsc::Sender, oneshot};
 use tokio::time::{timeout, Duration};
 use uuid::Uuid;
 
 pub struct IVars {
     pub sender: Sender<PeripheralEvent>,
-    pub services_resolver: RefCell<HashMap<Uuid, oneshot::Sender<Option<String>>>>,
-    pub advertisement_resolver: RefCell<Option<oneshot::Sender<Option<String>>>>,
+    pub services_resolver: Arc<Mutex<HashMap<Uuid, oneshot::Sender<Option<String>>>>>,
+    pub advertisement_resolver: Arc<Mutex<Option<oneshot::Sender<Option<String>>>>>,
 }
 
 declare_class!(
@@ -53,9 +57,12 @@ declare_class!(
                 error_desc = Some(error.localizedDescription().to_string());
             }
             log::debug!("Advertising, Error: {error_desc:?}");
-
-            if let Some(sender) = self.ivars().advertisement_resolver.borrow_mut().take() {
-                let _ = sender.send(error_desc);
+            if let Ok(mut resolver) = self.ivars().advertisement_resolver.lock() {
+                let sender_opt = resolver.take();
+                drop(resolver);
+                if let Some(sender) = sender_opt {
+                    let _ = sender.send(error_desc);
+                }
             }
         }
 
@@ -67,13 +74,11 @@ declare_class!(
             }
             log::debug!("AddServices, Error: {error_desc:?}");
 
-            if let Some(sender) = self
-            .ivars()
-            .services_resolver
-            .borrow_mut()
-            .remove(&service.get_uuid())
-            {
-                let _ = sender.send(error_desc);
+            if let  Ok(mut resolver) = self.ivars().services_resolver.lock() {
+                if let Some(sender) = resolver.remove(&service.get_uuid()) {
+                    drop(resolver);
+                    let _ = sender.send(error_desc);
+                }
             }
         }
 
@@ -138,7 +143,7 @@ declare_class!(
 
                 self.send_read_request(
                     PeripheralRequest{
-                         client: central.identifier().to_string(),
+                        client: central.identifier().to_string(),
                         service: characteristic.service().unwrap().get_uuid(),
                         characteristic: characteristic.get_uuid(),
                     },
@@ -187,43 +192,62 @@ impl PeripheralDelegate {
     pub fn new(sender: Sender<PeripheralEvent>) -> Retained<PeripheralDelegate> {
         let this = PeripheralDelegate::alloc().set_ivars(IVars {
             sender,
-            services_resolver: RefCell::new(HashMap::new()),
-            advertisement_resolver: RefCell::new(None),
+            services_resolver: Arc::new(Mutex::new(HashMap::new())),
+            advertisement_resolver: Arc::new(Mutex::new(None)),
         });
         return unsafe { msg_send_id![super(this), init] };
     }
 
     pub fn is_waiting_for_advertisement_result(&self) -> bool {
-        return self.ivars().advertisement_resolver.borrow().is_some();
+        if let Ok(resolver) = self.ivars().advertisement_resolver.lock() {
+            return resolver.is_some();
+        }
+        return false;
     }
 
     /// Wait for delegate to ensure advertisement started successfully
     pub async fn ensure_advertisement_started(&self) -> Result<(), Error> {
         let (sender, receiver) = oneshot::channel::<Option<String>>();
-        *self.ivars().advertisement_resolver.borrow_mut() = Some(sender);
+        {
+            if let Ok(mut resolver) = self.ivars().advertisement_resolver.lock() {
+                *resolver = Some(sender);
+            }
+        }
+
         let event = timeout(Duration::from_secs(5), receiver).await;
-        *self.ivars().advertisement_resolver.borrow_mut() = None;
+
+        {
+            if let Ok(mut resolver) = self.ivars().advertisement_resolver.lock() {
+                *resolver = None;
+            }
+        }
         return self.resolve_event(event);
     }
 
     pub fn is_waiting_for_service_result(&self, service: Uuid) -> bool {
-        return self
-            .ivars()
-            .services_resolver
-            .borrow()
-            .get(&service)
-            .is_some();
+        if let Ok(resolver) = self.ivars().services_resolver.lock() {
+            return resolver.get(&service).is_some();
+        }
+        return false;
     }
 
     // Wait for event from delegate if service added successfully
     pub async fn ensure_service_added(&self, service: Uuid) -> Result<(), Error> {
         let (sender, receiver) = oneshot::channel::<Option<String>>();
-        self.ivars()
-            .services_resolver
-            .borrow_mut()
-            .insert(service, sender);
+        {
+            if let Ok(mut resolver) = self.ivars().services_resolver.lock() {
+                resolver.insert(service, sender);
+            }
+        }
+
         let event = timeout(Duration::from_secs(5), receiver).await;
-        self.ivars().services_resolver.borrow_mut().remove(&service);
+
+        {
+            if let Ok(mut resolver) = self.ivars().services_resolver.lock() {
+                resolver.remove(&service);
+            }
+        }
+
         return self.resolve_event(event);
     }
 

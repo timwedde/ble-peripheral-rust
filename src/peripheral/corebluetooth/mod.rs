@@ -1,55 +1,98 @@
 mod characteristic_utils;
+pub mod error;
 mod mac_extensions;
 mod mac_utils;
 pub mod peripheral_delegate;
 mod peripheral_manager;
 
 use crate::{
-    error::Error,
+    error::{Error, ErrorType},
     gatt::{peripheral_event::PeripheralEvent, service::Service},
 };
-use peripheral_manager::PeripheralManager;
-use tokio::sync::mpsc::Sender;
+use async_trait::async_trait;
+use peripheral_manager::{is_authorized, run_peripheral_thread, ManagerEvent};
+use tokio::sync::{mpsc::Sender, oneshot};
 use uuid::Uuid;
 
+use super::PeripheralImpl;
+
 pub struct Peripheral {
-    peripheral_manager: PeripheralManager,
+    manager_tx: Sender<ManagerEvent>,
 }
 
-impl Peripheral {
-    pub async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
-        let peripheral_manager = PeripheralManager::new(sender_tx).unwrap();
-        Ok(Peripheral { peripheral_manager })
+#[async_trait]
+impl PeripheralImpl for Peripheral {
+    type Peripheral = Self;
+
+    async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
+        if !is_authorized() {
+            return Err(Error::from_type(ErrorType::PermissionDenied));
+        }
+        let (manager_tx, manager_rx) = tokio::sync::mpsc::channel(256);
+        run_peripheral_thread(sender_tx, manager_rx);
+        Ok(Peripheral { manager_tx })
     }
 
-    pub async fn is_powered(&mut self) -> Result<bool, Error> {
-        return Ok(self.peripheral_manager.is_powered());
+    async fn is_powered(&mut self) -> Result<bool, Error> {
+        let (responder, responder_rx) = oneshot::channel();
+        self.manager_tx
+            .send(ManagerEvent::IsPowered { responder })
+            .await?;
+        return responder_rx.await?;
     }
 
-    pub async fn is_advertising(&mut self) -> Result<bool, Error> {
-        return Ok(self.peripheral_manager.is_advertising());
+    async fn is_advertising(&mut self) -> Result<bool, Error> {
+        let (responder, responder_rx) = oneshot::channel();
+        self.manager_tx
+            .send(ManagerEvent::IsAdvertising { responder })
+            .await?;
+        return responder_rx.await?;
     }
 
-    pub async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
-        return self.peripheral_manager.start_advertising(name, uuids).await;
+    async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
+        let (responder, responder_rx) = oneshot::channel();
+        self.manager_tx
+            .send(ManagerEvent::StartAdvertising {
+                name: name.to_string(),
+                uuids: uuids.to_vec(),
+                responder,
+            })
+            .await?;
+        return responder_rx.await?;
     }
 
-    pub async fn stop_advertising(&mut self) -> Result<(), Error> {
-        return Ok(self.peripheral_manager.stop_advertising());
+    async fn stop_advertising(&mut self) -> Result<(), Error> {
+        let (responder, responder_rx) = oneshot::channel();
+        self.manager_tx
+            .send(ManagerEvent::StopAdvertising { responder })
+            .await?;
+        return responder_rx.await?;
     }
 
-    pub async fn add_service(&mut self, service: &Service) -> Result<(), Error> {
-        return self.peripheral_manager.add_service(service).await;
+    async fn add_service(&mut self, service: &Service) -> Result<(), Error> {
+        let (responder, responder_rx) = oneshot::channel();
+        self.manager_tx
+            .send(ManagerEvent::AddService {
+                service: service.clone(),
+                responder,
+            })
+            .await?;
+        return responder_rx.await?;
     }
 
-    pub async fn update_characteristic(
+    async fn update_characteristic(
         &mut self,
         characteristic: Uuid,
         value: Vec<u8>,
     ) -> Result<(), Error> {
-        return self
-            .peripheral_manager
-            .update_characteristic(characteristic, value)
-            .await;
+        let (responder, responder_rx) = oneshot::channel();
+        self.manager_tx
+            .send(ManagerEvent::UpdateCharacteristic {
+                characteristic,
+                value,
+                responder,
+            })
+            .await?;
+        return responder_rx.await?;
     }
 }

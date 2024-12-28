@@ -1,20 +1,25 @@
 {
-    "cSpell.words": [
-        "CBATT",
-        "corebluetooth",
-        "descriptoruuid",
-        "didaddservice",
-        "didreceivereadrequest",
-        "didreceivewriterequests",
-        "didsubscribetocharacteristic",
-        "didunsubscribefromcharacteristic",
-        "HRESULT",
-        "Inspectable",
-        "ivars",
-        "objc",
-        "oneshot",
-        "peripheralmanager",
-        "peripheralmanagerdidstartadvertising",
-        "peripheralmanagerdidupdatestate"
-    ]
+  "cSpell.words": [
+    "authnticated",
+    "bluetoothd",
+    "bluez",
+    "CBATT",
+    "corebluetooth",
+    "descriptoruuid",
+    "didaddservice",
+    "didreceivereadrequest",
+    "didreceivewriterequests",
+    "didsubscribetocharacteristic",
+    "didunsubscribefromcharacteristic",
+    "HRESULT",
+    "Inspectable",
+    "ivars",
+    "NSUUID",
+    "objc",
+    "oneshot",
+    "peripheralmanager",
+    "peripheralmanagerdidstartadvertising",
+    "peripheralmanagerdidupdatestate",
+    "winrt"
+  ]
 }

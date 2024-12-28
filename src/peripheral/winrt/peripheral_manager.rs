@@ -10,9 +10,9 @@ use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 use windows::core::{Error, HRESULT};
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
-    GattLocalCharacteristic, GattLocalCharacteristicParameters, GattLocalDescriptorParameters,
-    GattServiceProvider, GattServiceProviderAdvertisementStatus,
-    GattServiceProviderAdvertisingParameters, GattSubscribedClient,
+    GattLocalCharacteristicParameters, GattLocalDescriptorParameters, GattServiceProvider,
+    GattServiceProviderAdvertisementStatus, GattServiceProviderAdvertisingParameters,
+    GattSubscribedClient,
 };
 use windows::Devices::Bluetooth::{BluetoothAdapter, BluetoothError};
 use windows::Devices::Radios::{Radio, RadioKind};
@@ -201,17 +201,14 @@ impl PeripheralManager {
         characteristic: Uuid,
         value: Vec<u8>,
     ) -> Result<(), Error> {
-        if let Some(char) = self.get_local_characteristic(characteristic) {
-            char.NotifyValueAsync(&vec_to_buffer(value))?.await?;
-            return Ok(());
-        }
-        return Err(Error::new(HRESULT(1), "Characteristic not found"));
-    }
-
-    fn get_local_characteristic(&self, characteristic: Uuid) -> Option<&GattLocalCharacteristic> {
-        self.services
+        let char = self
+            .services
             .values()
             .find_map(|service| service.characteristics.get(&characteristic).map(|c| &c.obj))
+            .expect("Characteristic not found");
+        let notify_async = char.NotifyValueAsync(&vec_to_buffer(value))?;
+        notify_async.await?;
+        return Ok(());
     }
 
     fn are_all_services_started(&self) -> windows::core::Result<bool> {

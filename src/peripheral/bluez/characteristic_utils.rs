@@ -3,11 +3,13 @@ use crate::gatt::peripheral_event::{
     PeripheralEvent, PeripheralRequest, ReadRequestResponse, RequestResponse, WriteRequestResponse,
 };
 use crate::gatt::properties::AttributePermission;
-use crate::gatt::{characteristic, properties, service};
+use crate::gatt::{characteristic, descriptor, properties, service};
 use bluer::gatt::local::{
     characteristic_control, service_control, Characteristic, CharacteristicControl,
     CharacteristicControlHandle, CharacteristicNotify, CharacteristicNotifyMethod,
-    CharacteristicWrite, CharacteristicWriteMethod, CharacteristicWriteRequest, ReqError, Service,
+    CharacteristicWrite, CharacteristicWriteMethod, CharacteristicWriteRequest, Descriptor,
+    DescriptorRead, DescriptorReadRequest, DescriptorWrite, DescriptorWriteRequest, ReqError,
+    Service,
 };
 use bluer::gatt::local::{CharacteristicRead, CharacteristicReadRequest};
 use futures::FutureExt;
@@ -60,20 +62,20 @@ fn parse_characteristic(
     service_uuid: Uuid,
     sender_tx: Sender<PeripheralEvent>,
 ) -> (Characteristic, Option<CharacteristicControl>) {
-    // let descriptors: Vec<Descriptor> = characteristic
-    //     .descriptors
-    //     .iter()
-    //     .map(|data| parse_descriptor(data.clone()))
-    //     .collect();
+    let descriptors: Vec<Descriptor> = characteristic
+        .descriptors
+        .iter()
+        .map(|data| parse_descriptor(data.clone()))
+        .collect();
 
     let char_notify = get_characteristic_notify(characteristic.clone());
 
-    let mut contorl: Option<CharacteristicControl> = None;
+    let mut control: Option<CharacteristicControl> = None;
 
     let control_handle = match char_notify {
         Some(_) => {
             let (ctrl, handle) = characteristic_control();
-            contorl = Some(ctrl);
+            control = Some(ctrl);
             handle
         }
         None => CharacteristicControlHandle::default(),
@@ -88,10 +90,10 @@ fn parse_characteristic(
             .properties
             .contains(&properties::CharacteristicProperty::Broadcast),
         control_handle,
-        //  descriptors, // TODO: fix descriptors
+        descriptors, // TODO: fix descriptors
         ..Default::default()
     };
-    return (char, contorl);
+    return (char, control);
 }
 
 fn get_characteristic_read(
@@ -206,13 +208,77 @@ fn get_characteristic_notify(
     });
 }
 
-// fn parse_descriptor(descriptor: descriptor::Descriptor) -> Descriptor {
-//     // TODO: Add properties
-//     return Descriptor {
-//         uuid: descriptor.uuid,
-//         ..Default::default()
-//     };
-// }
+fn parse_descriptor(descriptor: descriptor::Descriptor) -> Descriptor {
+    return Descriptor {
+        uuid: descriptor.uuid,
+        read: get_descriptor_read(descriptor.clone()),
+        write: get_descriptor_write(descriptor.clone()),
+        ..Default::default()
+    };
+}
+
+fn get_descriptor_read(descriptor: descriptor::Descriptor) -> Option<DescriptorRead> {
+    if !descriptor
+        .properties
+        .contains(&properties::CharacteristicProperty::Read)
+    {
+        return None;
+    }
+
+    let is_secure = descriptor
+        .permissions
+        .contains(&AttributePermission::ReadEncryptionRequired);
+    let value = descriptor.value;
+    return Some(DescriptorRead {
+        read: true,
+        secure_read: is_secure,
+        fun: Box::new(move |_: DescriptorReadRequest| {
+            let value_clone = value.clone();
+            async move {
+                if value_clone.is_none() {
+                    return Err(ReqError::Failed);
+                }
+                return Ok(value_clone.unwrap());
+            }
+            .boxed()
+        }),
+        ..Default::default()
+    });
+}
+
+fn get_descriptor_write(descriptor: descriptor::Descriptor) -> Option<DescriptorWrite> {
+    let is_write = descriptor
+        .properties
+        .contains(&properties::CharacteristicProperty::Write);
+    let is_write_with_response = descriptor
+        .properties
+        .contains(&properties::CharacteristicProperty::WriteWithoutResponse);
+    let is_authnticated_signed_write = descriptor
+        .properties
+        .contains(&properties::CharacteristicProperty::AuthenticatedSignedWrites);
+
+    if !is_write && !is_write_with_response && !is_authnticated_signed_write {
+        return None;
+    }
+
+    let is_write_encryption = descriptor
+        .permissions
+        .contains(&AttributePermission::WriteEncryptionRequired);
+
+    return Some(DescriptorWrite {
+        write: is_write || is_write_with_response,
+        encrypt_authenticated_write: is_authnticated_signed_write,
+        secure_write: is_write_encryption,
+        fun: Box::new(move |value: Vec<u8>, _: DescriptorWriteRequest| {
+            async move {
+                log::info!("Descriptor Write {value:?}");
+                return Ok(());
+            }
+            .boxed()
+        }),
+        ..Default::default()
+    });
+}
 
 /// Handle Requests
 async fn on_read_request(

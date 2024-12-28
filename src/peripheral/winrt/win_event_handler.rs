@@ -12,9 +12,10 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 use windows::core::IInspectable;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
-    GattProtocolError, GattServiceProviderAdvertisementStatus,
+    GattProtocolError, GattServiceProviderAdvertisementStatus, GattSubscribedClient,
 };
 use windows::Devices::Radios::{Radio, RadioState};
+use windows::Foundation::Collections::IVectorView;
 use windows::{
     Devices::Bluetooth::GenericAttributeProfile::{
         GattLocalCharacteristic, GattReadRequestedEventArgs, GattServiceProvider,
@@ -85,7 +86,9 @@ impl WinEventHandler {
                 let characteristic: &GattLocalCharacteristic = originator.as_ref().unwrap();
                 let characteristic_uuid = to_uuid(&characteristic.Uuid().unwrap());
 
-                let subscribed_clients = characteristic.SubscribedClients().unwrap();
+                let subscribed_clients: IVectorView<GattSubscribedClient> =
+                    characteristic.SubscribedClients().unwrap();
+                    
                 let new_clients: Vec<String> = subscribed_clients
                     .into_iter()
                     .map(|client| device_id_from_session(client.Session().unwrap()))

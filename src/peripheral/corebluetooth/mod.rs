@@ -9,16 +9,22 @@ use crate::{
     error::{Error, ErrorType},
     gatt::{peripheral_event::PeripheralEvent, service::Service},
 };
+use async_trait::async_trait;
 use peripheral_manager::{is_authorized, run_peripheral_thread, ManagerEvent};
 use tokio::sync::{mpsc::Sender, oneshot};
 use uuid::Uuid;
+
+use super::PeripheralImpl;
 
 pub struct Peripheral {
     manager_tx: Sender<ManagerEvent>,
 }
 
-impl Peripheral {
-    pub async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
+#[async_trait]
+impl PeripheralImpl for Peripheral {
+    type Peripheral = Self;
+
+    async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
         if !is_authorized() {
             return Err(Error::from_type(ErrorType::PermissionDenied));
         }
@@ -27,7 +33,7 @@ impl Peripheral {
         Ok(Peripheral { manager_tx })
     }
 
-    pub async fn is_powered(&mut self) -> Result<bool, Error> {
+    async fn is_powered(&mut self) -> Result<bool, Error> {
         let (responder, responder_rx) = oneshot::channel();
         self.manager_tx
             .send(ManagerEvent::IsPowered { responder })
@@ -35,7 +41,7 @@ impl Peripheral {
         return responder_rx.await?;
     }
 
-    pub async fn is_advertising(&mut self) -> Result<bool, Error> {
+    async fn is_advertising(&mut self) -> Result<bool, Error> {
         let (responder, responder_rx) = oneshot::channel();
         self.manager_tx
             .send(ManagerEvent::IsAdvertising { responder })
@@ -43,7 +49,7 @@ impl Peripheral {
         return responder_rx.await?;
     }
 
-    pub async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
+    async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
         let (responder, responder_rx) = oneshot::channel();
         self.manager_tx
             .send(ManagerEvent::StartAdvertising {
@@ -55,7 +61,7 @@ impl Peripheral {
         return responder_rx.await?;
     }
 
-    pub async fn stop_advertising(&mut self) -> Result<(), Error> {
+    async fn stop_advertising(&mut self) -> Result<(), Error> {
         let (responder, responder_rx) = oneshot::channel();
         self.manager_tx
             .send(ManagerEvent::StopAdvertising { responder })
@@ -63,7 +69,7 @@ impl Peripheral {
         return responder_rx.await?;
     }
 
-    pub async fn add_service(&mut self, service: &Service) -> Result<(), Error> {
+    async fn add_service(&mut self, service: &Service) -> Result<(), Error> {
         let (responder, responder_rx) = oneshot::channel();
         self.manager_tx
             .send(ManagerEvent::AddService {
@@ -74,7 +80,7 @@ impl Peripheral {
         return responder_rx.await?;
     }
 
-    pub async fn update_characteristic(
+    async fn update_characteristic(
         &mut self,
         characteristic: Uuid,
         value: Vec<u8>,

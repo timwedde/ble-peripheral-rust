@@ -13,7 +13,7 @@ use ble_peripheral_rust::{
         service::Service,
     },
     uuid::ShortUuid,
-    Peripheral,
+    Peripheral, PeripheralImpl,
 };
 
 #[tokio::main]

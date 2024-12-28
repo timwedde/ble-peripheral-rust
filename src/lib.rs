@@ -3,4 +3,4 @@ pub mod gatt;
 pub mod uuid;
 
 mod peripheral;
-pub use self::peripheral::Peripheral;
+pub use self::peripheral::{Peripheral, PeripheralImpl};

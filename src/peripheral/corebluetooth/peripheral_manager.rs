@@ -12,24 +12,72 @@ use objc2_core_bluetooth::{
     CBPeripheralManager,
 };
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSString};
+use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::CString;
-use tokio::sync::mpsc;
+use std::thread;
+use tokio::runtime;
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
+pub(crate) enum ManagerEvent {
+    IsPowered {
+        responder: oneshot::Sender<Result<bool, Error>>,
+    },
+    IsAdvertising {
+        responder: oneshot::Sender<Result<bool, Error>>,
+    },
+    StartAdvertising {
+        name: String,
+        uuids: Vec<Uuid>,
+        responder: oneshot::Sender<Result<(), Error>>,
+    },
+    StopAdvertising {
+        responder: oneshot::Sender<Result<(), Error>>,
+    },
+    AddService {
+        service: Service,
+        responder: oneshot::Sender<Result<(), Error>>,
+    },
+    UpdateCharacteristic {
+        characteristic: Uuid,
+        value: Vec<u8>,
+        responder: oneshot::Sender<Result<(), Error>>,
+    },
+}
+
+static PERIPHERAL_THREAD: OnceCell<()> = OnceCell::new();
+
+// Handle Peripheral Manager and all communication in a separate thread
+pub fn run_peripheral_thread(sender: Sender<PeripheralEvent>, listener: Receiver<ManagerEvent>) {
+    PERIPHERAL_THREAD.get_or_init(|| {
+        thread::spawn(move || {
+            let runtime = runtime::Builder::new_current_thread().enable_time().build();
+            if runtime.is_err() {
+                log::error!("Failed to create runtime");
+                return;
+            }
+            runtime.unwrap().block_on(async move {
+                let mut peripheral_manager = PeripheralManager::new(sender, listener);
+                loop {
+                    peripheral_manager.handle_event().await;
+                }
+            })
+        });
+    });
+}
+
 #[derive(Debug)]
-pub struct PeripheralManager {
+struct PeripheralManager {
+    manager_event: Receiver<ManagerEvent>,
     cb_peripheral_manager: Retained<CBPeripheralManager>,
     peripheral_delegate: Retained<PeripheralDelegate>,
     cached_characteristics: HashMap<Uuid, Retained<CBMutableCharacteristic>>,
 }
 
 impl PeripheralManager {
-    pub fn new(sender_tx: mpsc::Sender<PeripheralEvent>) -> Result<Self, Error> {
-        if !is_authorized() {
-            return Err(Error::from_type(ErrorType::PermissionDenied));
-        }
-
+    fn new(sender_tx: mpsc::Sender<PeripheralEvent>, listener: Receiver<ManagerEvent>) -> Self {
         let delegate: Retained<PeripheralDelegate> = PeripheralDelegate::new(sender_tx);
         let label: CString = CString::new("CBqueue").unwrap();
         let queue: *mut std::ffi::c_void = unsafe {
@@ -40,21 +88,55 @@ impl PeripheralManager {
             msg_send_id![CBPeripheralManager::alloc(), initWithDelegate: &**delegate, queue: queue]
         };
 
-        Ok(Self {
+        Self {
+            manager_event: listener,
             cb_peripheral_manager: peripheral_manager,
             peripheral_delegate: delegate,
             cached_characteristics: HashMap::new(),
-        })
+        }
     }
 
-    pub fn is_powered(self: &Self) -> bool {
+    async fn handle_event(&mut self) {
+        if let Some(event) = self.manager_event.recv().await {
+            let _ = match event {
+                ManagerEvent::IsPowered { responder } => {
+                    let _ = responder.send(Ok(self.is_powered()));
+                }
+                ManagerEvent::IsAdvertising { responder } => {
+                    let _ = responder.send(Ok(self.is_advertising()));
+                }
+                ManagerEvent::StartAdvertising {
+                    name,
+                    uuids,
+                    responder,
+                } => {
+                    let _ = responder.send(self.start_advertising(&name, &uuids).await);
+                }
+                ManagerEvent::StopAdvertising { responder } => {
+                    let _ = responder.send(Ok(self.stop_advertising()));
+                }
+                ManagerEvent::AddService { service, responder } => {
+                    let _ = responder.send(self.add_service(&service).await);
+                }
+                ManagerEvent::UpdateCharacteristic {
+                    characteristic,
+                    value,
+                    responder,
+                } => {
+                    let _ = responder.send(self.update_characteristic(characteristic, value).await);
+                }
+            };
+        }
+    }
+
+    fn is_powered(self: &Self) -> bool {
         unsafe {
             let state = self.cb_peripheral_manager.state();
             state == CBManagerState::PoweredOn
         }
     }
 
-    pub async fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
+    async fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
         if self
             .peripheral_delegate
             .is_waiting_for_advertisement_result()
@@ -92,17 +174,17 @@ impl PeripheralManager {
             .await;
     }
 
-    pub fn stop_advertising(self: &Self) {
+    fn stop_advertising(self: &Self) {
         unsafe {
             self.cb_peripheral_manager.stopAdvertising();
         }
     }
 
-    pub fn is_advertising(self: &Self) -> bool {
+    fn is_advertising(self: &Self) -> bool {
         unsafe { self.cb_peripheral_manager.isAdvertising() }
     }
 
-    pub async fn update_characteristic(
+    async fn update_characteristic(
         &mut self,
         characteristic: Uuid,
         value: Vec<u8>,
@@ -122,7 +204,7 @@ impl PeripheralManager {
 
     // Peripheral with cache value must only have Read permission, else it will crash
     // TODO: throw proper error, or catch Objc errors
-    pub async fn add_service(&mut self, service: &Service) -> Result<(), Error> {
+    async fn add_service(&mut self, service: &Service) -> Result<(), Error> {
         if self
             .peripheral_delegate
             .is_waiting_for_service_result(service.uuid)

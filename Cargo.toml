@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "A cross-platform Rust crate for building Bluetooth Low Energy peripherals"
-homepage = "https://github.com/rohitsangwan01/ble_peripheral_rust"
-repository = "https://github.com/rohitsangwan01/ble_peripheral_rust"
+homepage = "https://github.com/rohitsangwan01/ble-peripheral-rust"
+repository = "https://github.com/rohitsangwan01/ble-peripheral-rust"
 keywords = ["bluetooth", "ble", "peripheral", "bluez", "corebluetooth"]
 categories = ["embedded", "hardware-support", "api-bindings"]
 
 [dependencies]
 futures = "0.3.31"
-tokio = { version = "1.41.0", features = [
+tokio = { version = "1.42.0", features = [
     "sync",
     "time",
     "rt-multi-thread",

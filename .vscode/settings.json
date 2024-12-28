@@ -1,6 +1,7 @@
 {
   "cSpell.words": [
     "bluetoothd",
+    "bluez",
     "CBATT",
     "corebluetooth",
     "descriptoruuid",
@@ -17,6 +18,7 @@
     "oneshot",
     "peripheralmanager",
     "peripheralmanagerdidstartadvertising",
-    "peripheralmanagerdidupdatestate"
+    "peripheralmanagerdidupdatestate",
+    "winrt"
   ]
 }

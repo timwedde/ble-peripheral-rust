@@ -177,8 +177,6 @@ impl PeripheralImpl for Peripheral {
         drop(writers);
         tokio::spawn(async move {
             if let Some(writer) = writer {
-                let mtu = writer.mtu();
-                println!("MTU: {mtu}");
                 if let Err(err) = writer.send(&value).await {
                     log::error!("Error sending value {err:?}")
                 }

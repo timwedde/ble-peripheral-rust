@@ -31,7 +31,7 @@ use super::PeripheralImpl;
 
 #[derive(Debug)]
 pub struct Peripheral {
-    adapter: Adapter,
+    pub adapter: Adapter,
     services: Vec<service::Service>,
     adv_handle: Option<AdvertisementHandle>,
     app_handle: Option<ApplicationHandle>,

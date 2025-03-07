@@ -46,6 +46,17 @@ impl PeripheralImpl for Peripheral {
 
     async fn new(sender_tx: Sender<PeripheralEvent>) -> Result<Self, Error> {
         let session = bluer::Session::new().await?;
+        session.register_agent(bluer::agent::Agent {
+            request_default: true,
+            request_pin_code: None,
+            display_pin_code: None,
+            request_passkey: None,
+            display_passkey: None,
+            request_confirmation: None,
+            request_authorization: None,
+            authorize_service: None,
+            ..Default::default()
+        });
         let adapter = session.default_adapter().await?;
         adapter.set_powered(true).await?;
         log::debug!(

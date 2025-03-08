@@ -50,7 +50,7 @@ impl PeripheralImpl for Peripheral {
     ) -> Result<Self, Error> {
         let session = bluer::Session::new().await?;
         if let Some(agent) = agent {
-            session.register_agent(agent)
+            session.register_agent(agent);
         };
         let adapter = session.default_adapter().await?;
         adapter.set_powered(true).await?;

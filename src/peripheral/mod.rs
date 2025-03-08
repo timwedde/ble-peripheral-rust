@@ -21,6 +21,34 @@ use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[async_trait]
+pub trait PeripheralImpl: Send + Sync {
+    type Peripheral: PeripheralImpl + Send + Sync;
+
+    async fn new(
+        sender_tx: Sender<PeripheralEvent>,
+        agent: Option<bluer::agent::Agent>,
+    ) -> Result<Peripheral, Error>;
+
+    async fn is_powered(&mut self) -> Result<bool, Error>;
+
+    async fn is_advertising(&mut self) -> Result<bool, Error>;
+
+    async fn start_advertising(&mut self, name: &str, uuids: &[Uuid]) -> Result<(), Error>;
+
+    async fn stop_advertising(&mut self) -> Result<(), Error>;
+
+    async fn add_service(&mut self, service: &Service) -> Result<(), Error>;
+
+    async fn update_characteristic(
+        &mut self,
+        characteristic: Uuid,
+        value: Vec<u8>,
+    ) -> Result<(), Error>;
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 #[async_trait]
 pub trait PeripheralImpl: Send + Sync {
     type Peripheral: PeripheralImpl + Send + Sync;
